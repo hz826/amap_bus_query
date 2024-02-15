@@ -1,1 +1,1 @@
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files --new-window "C:\hz\test\amap\amap_bus_query\test.html"
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files --new-window "C:\hz\test\amap\amap_bus_query\index.html"

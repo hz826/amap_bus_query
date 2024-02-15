@@ -1,0 +1,269 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no, width=device-width">
+    <title>test</title>
+    <link rel="stylesheet" href="https://a.amap.com/jsapi_demos/static/demo-center/css/demo-center.css"/> 
+    <style type="text/css">
+       html,body,#container{
+           height:100%;
+       }
+    </style>
+    <script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
+</head>
+
+<body>
+
+<div id="container"></div>
+
+<div class="input-card" style="width:32rem;  max-height: 90vh;">
+    <div id="info" style="max-height: 70vh;  overflow: scroll;">
+    </div>
+    
+    <div class="input-item" style="margin-top: 2rem" id="check_box">
+    </div>
+
+    <div class="input-item" style="margin-top: 2rem" id="check_box2">
+    </div>
+
+    <div class="input-item">
+        <div class="input-item-prepend"><span class="input-item-text">半径（米）</span></div>
+        <input id='input_radius' type="text" value='300' >
+    </div>
+</div>
+
+<script type="text/javascript">
+    window._AMapSecurityConfig = {
+        securityJsCode:'b70fe15d7c578d87a474ef58848d6a28',
+    }
+</script>
+<script type="text/javascript" src="https://webapi.amap.com/maps?v=2.0&key=0872230e8c78074395c286a1f30df6bc"></script>
+<script language="javascript">
+    var map;
+    /*公交路线查询服务返回数据解析概况*/
+
+    var borderlines = new Array(); 
+    var polylines1 = new Array();
+    var polylines2 = new Array();
+    // var box = new Array();
+    var linename = new Array();
+    var last_click = null;
+    var citylist, select = {};
+    var linetype = {};
+    var linestatus = {};
+
+    function update_polylines(i, flag1, flag2) {
+        if (flag1 != polylines1[i][2]) {
+            polylines1[i][2] = flag1;
+            if (flag1) polylines1[i][0].show();
+            else polylines1[i][0].hide();
+        }
+        
+        if (flag2 != polylines2[i][2]) {
+            polylines2[i][2] = flag2;
+            if (flag2) polylines2[i][0].show();
+            else polylines2[i][0].hide();
+        }
+    }
+
+    var clickHandler = function(e) {
+        // alert('您在[ '+e.lnglat.getLng()+','+e.lnglat.getLat()+' ]的位置点击了地图！');
+
+        // document.getElementById('info').innerHTML = '正在查找';
+
+        var pos = e.lnglat;
+        var radius = document.getElementById('input_radius').value;
+
+        if (last_click != null) map.remove(last_click);
+
+        last_click = new AMap.Circle({
+            center: new AMap.LngLat(pos.getLng(), pos.getLat()),  // 圆心位置
+            radius: radius, // 圆半径（米）
+            bubble: true,
+            fillColor: 'red',   // 圆形填充颜色
+            strokeColor: '#fff', // 描边颜色
+            strokeWeight: 2, // 描边宽度
+        });
+
+        map.add(last_click);
+        var result = '';
+        var set = new Set();
+
+        for (var i = 0; i < polylines1.length; i++) {
+            line = polylines2[i][0].getPath();
+
+            var dis = 1000000;
+            for (var j = 0; j < line.length; j++) dis = Math.min(dis, pos.distance(line[j]));
+
+            var flag1 = select[polylines1[i][1]] && linetype[polylines1[i][3]] && linestatus[polylines1[i][4]];
+            var flag2 = (dis < radius) && select[polylines2[i][1]] && linetype[polylines2[i][3]] && linestatus[polylines1[i][4]];
+
+            update_polylines(i, flag1, flag2);
+
+            if (flag2) {
+                if (!set.has(linename[i])) {
+                    set.add(linename[i]);
+                    result += '<button class="btn" style="margin-bottom: 5px">' + linename[i] + '</button></br>\n';
+                }
+            }
+        }
+
+        document.getElementById('info').innerHTML = result;
+    };
+
+    function checkbox_change() {
+        for (var i = 0; i < citylist.length; i++) {
+            select[citylist[i]] = document.getElementById('checkbox_' + citylist[i]).checked;
+        }
+
+        for (const i in linetype) {
+            linetype[i] = document.getElementById('checkbox_' + i).checked;
+        }
+
+        for (const i in linestatus) {
+            linestatus[i] = document.getElementById('checkbox_' + i).checked;
+        }
+
+        for (var i = 0; i < polylines1.length; i++) {
+            var flag1 = select[polylines1[i][1]] && linetype[polylines1[i][3]] && linestatus[polylines1[i][4]];
+            var flag2 = false;
+            update_polylines(i, flag1, flag2);
+        }
+        // alert(JSON.stringify(select));
+        // alert(JSON.stringify(linetype));
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+
+    function load_city_Callback(data, cityname, initmap) {
+        document.getElementById('info').innerHTML = 'loading ' + cityname;
+        // alert('loading ' + cityname)
+
+        select[cityname] = true;
+
+        var lineArr = data.lineInfo;
+        var lineNum = lineArr.length;
+        
+        // console.log(lineArr);
+        // console.log(lineNum);
+
+        var border = data.city_polyline;
+        var borderNum = border.length;
+
+        if (initmap) {
+            map = new AMap.Map("container", {
+                resizeEnable: true,
+                zoom: 13,
+                mapStyle: 'amap://styles/whitesmoke',
+                center: data.center
+            });
+            map.on('click', clickHandler);
+        }
+
+        for (var i = 0; i < borderNum; i++) {
+            borderlines.push([new AMap.Polyline({
+                map: map,
+                bubble: true,
+                path: border[i],
+                strokeColor: "#555",//线颜色
+                strokeOpacity: 0.8,//线透明度
+                isOutline:true,
+                outlineColor:'white',
+                strokeWeight: 2//线宽
+            }), cityname, true]);
+        }
+
+        for (var i = 0; i < lineNum; i++) {
+            linename.push(lineArr[i].name);
+            
+            if (!(lineArr[i].type in linetype)) {
+                linetype[lineArr[i].type] = true;
+            }
+
+            if (!(lineArr[i].status in linestatus)) {
+                linestatus[lineArr[i].status] = true;
+            }
+        }
+
+        var colordic = new Array();
+        for (var i in linetype) {
+            colordic[i] = "#00bbf0";
+        }
+        colordic["机场大巴"] = "#bfcfff"
+        colordic["地铁"] = "#f76b8a";
+
+
+        for (var i = 0; i < lineNum; i++) {
+            polylines1.push([new AMap.Polyline({
+                map: map,
+                bubble: true,
+                path: lineArr[i].path,
+                strokeColor: colordic[lineArr[i].type],//线颜色
+                strokeOpacity: 0.8,//线透明度
+                isOutline:true,
+                outlineColor:'white',
+                strokeWeight: 2//线宽
+            }), cityname, true, lineArr[i].type, lineArr[i].status]);
+        }
+
+        for (var i = 0; i < lineNum; i++) {
+            polylines2.push([new AMap.Polyline({
+                map: map,
+                bubble: true,
+                path: lineArr[i].path,
+                strokeColor: "#f00",//线颜色
+                strokeOpacity: 0.8,//线透明度
+                isOutline:true,
+                outlineColor:'white',
+                strokeWeight: 2//线宽
+            }), cityname, false, lineArr[i].type, lineArr[i].status]);
+        }
+        
+        for (var i = 0; i < polylines2.length; i++) polylines2[i][0].hide();
+        document.getElementById('info').innerHTML = '';
+    }
+
+    function load_citylist_Callback(data) {
+        citylist = data.citylist[data.areaname];
+
+        for (var i = 0; i < citylist.length; i++) {
+            document.getElementById('check_box').innerHTML += '<input type="checkbox" checked style="margin-left: 1rem" onclick="checkbox_change()" id="checkbox_' + citylist[i] + '"/>' + citylist[i];
+        }
+
+        for (var i = 0; i < citylist.length; i++) {
+            a = $.ajax({
+                url: 'data/' + citylist[i] + ".json",
+                type: "GET",
+                dataType: "json",
+                async: false,
+                success: function(data) { //请求成功完成后要执行的方法 
+                    load_city_Callback(data, citylist[i], i==0, i==citylist.length-1);
+                }
+            });
+        }
+        // alert('finish')
+
+        for (var i in linetype) {
+            document.getElementById('check_box').innerHTML += '<input type="checkbox" checked style="margin-left: 1rem" onclick="checkbox_change()" id="checkbox_' + i + '"/>' + i;
+        }
+
+        for (var i in linestatus) {
+            document.getElementById('check_box').innerHTML += '<input type="checkbox" checked style="margin-left: 1rem" onclick="checkbox_change()" id="checkbox_' + i + '"/>' + i;
+        }
+    }
+
+    a = $.ajax({
+        url: "citylist.json",
+        type: "GET",
+        dataType: "json",
+        async: false,
+        success: function(data) { //请求成功完成后要执行的方法 
+            load_citylist_Callback(data);
+        }
+    });
+    
+</script>
+</body>
+</html>

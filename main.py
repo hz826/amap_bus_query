@@ -3,9 +3,12 @@ import requests
 import json
 import os
 import re
+import time
 from keys import *
 
-cityname = '香港特别行政区'
+# cityname, citycode, cityname_8684 = '广州市', '020', 'guangzhou'
+# cityname, citycode, cityname_8684 = '武汉市', '027', 'wuhan'
+cityname, citycode, cityname_8684 = '南京市', '025', 'nanjing'
 
 def query(url) :
     r = requests.get(url).text
@@ -23,152 +26,125 @@ def decode_polyline(line) :
     return [[float(p[0]), float(p[1])] for p in line]
 
 def stage0() :
-    folder_path = 'tmp/{}/'.format(cityname)
-    if not os.path.exists(folder_path) :
-        os.makedirs(folder_path)
+    workdir= 'tmp/{}/'.format(cityname)
+    if not os.path.exists(workdir) :
+        os.makedirs(workdir)
     
-    url = 'https://restapi.amap.com/v3/config/district?key={}&keywords={}&extensions=all'.format(key1, cityname)
+    url = 'https://restapi.amap.com/v3/config/district?key={}&keywords={}&extensions=all'.format(key, cityname)
     rt = query(url)
 
     data = {'city':[cityname], 'center':rt['districts'][0]['center'], 'polyline':[rt['districts'][0]['polyline']]}
     save('tmp/{}/district.csv'.format(cityname), data)
 
-def stage1():
-    def generate_url(x,y,i) :
-        x = x / 10
-        y = y / 10
-        return 'https://restapi.amap.com/v3/place/polygon?polygon={:.6f},{:.6f}|{:.6f},{:.6f}&key={}&output=json&types=150500|150600|150700&city={}&citylimit=true&offset=25&page={}'.format(x,y,x+0.1,y+0.1, key1, cityname, i)
 
-    border = load('tmp/{}/district.csv'.format(cityname))
-    border = border['polyline'][0].split('|')
-    border = sum([decode_polyline(s) for s in border], [])
-    
-    L = min(p[0] for p in border)
-    R = max(p[0] for p in border)
-    U = min(p[1] for p in border)
-    D = max(p[1] for p in border)
-    print(L, R, U, D)
-
-    titles = ['id', 'name', 'location', 'address', 'cityname']
-    data = {d:[] for d in titles}
-
-    for x in range(int(L*10)-1, int(R*10)+2) :
-        for y in range(int(U*10)-1, int(D*10)+2) :
-            for i in range(1,100) :
-                url = generate_url(x, y, i)
-                rt = query(url)
-
-                print(url)
-                # print(rt)
-
-                if len(rt['pois']) == 0 :
-                    break
-                
-                for info in rt['pois'] :
-                    for d in titles :
-                        data[d].append(info.get(d, ''))
-    
-    save('tmp/{}/stations_in_rect.csv'.format(cityname), data)
-
-def stage2():
-    D = ['id', 'name', 'location', 'address', 'naddress', 'cityname', 'error']
-    oD = ['id', 'name', 'location', 'address', 'cityname']
-
-    ndata = {d:[] for d in D}
-    
-    data = load('tmp/{}/stations_in_rect.csv'.format(cityname)).to_dict(orient='list')
-    n = len(data['name'])
-    print(n)
-
-    for i in range(n) :
-        if data['cityname'][i] != cityname : continue
-
-        url = 'https://restapi.amap.com/v3/assistant/inputtips?key={}&keywords={}&output=json&city={}&citylimit=true&location={}'.format(key1, data['name'][i], data['cityname'][i], data['location'][i])
-
-        while True :
-            flag = True
-            try :
-                r = requests.get(url).text
-                rt = json.loads(r)
-            except :
-                flag = False
-            if flag : break
-
-        print('{} / {}'.format(i,n))
-        print(url)
-        # print(rt)
-        print()
-
-        for d in oD :
-            ndata[d].append(data[d][i])
-
-        find = False
-
-        if 'tips' not in rt : continue
-
-        for tips in rt['tips'] :
-            # print(tips['id'], data['id'][i])
-            # print(tips['name'], data['name'][i])
-
-            if (tips['id'] == data['id'][i] and tips['name'] == data['name'][i]) :    
-                find = True
-                ndata['naddress'].append(tips['address'])
-                ndata['error'].append(0)
-                break
-        
-        if not find :
-            ndata['naddress'].append(data['address'][i])
-            ndata['error'].append(1)
-    
-    save('tmp/{}/stations_with_detail.csv'.format(cityname), ndata)
-
-def stage3() :
-    data = load('tmp/{}/stations_with_detail.csv'.format(cityname)).to_dict(orient='list')
-    n = len(data['name'])
-    print(n)
-
+def stage1() :
+    list1 = [chr(x) for x in range(ord('A'), ord('Z') + 1)] + \
+             [str(y) for y in range(10)]
     bus = []
-
-    for i in range(n) :
-        if data['error'][i] == 1 :
-            continue
-
-        if (pd.isnull(data['naddress'][i])) :
-            continue
-
-        a = data['naddress'][i].split(';')
-        for b in a :
-            p = (data['cityname'][i], b.replace('(停运)','').replace('(在建)',''))
-            if p not in bus :
-                bus.append(p)
     
-    D = ['id', 'type', 'status', 'name', 'polyline', 'citycode', 'busstops']
-    ndata = {d:[] for d in D}
+    for i in list1 :
+        url = 'https://{}.8684.cn/list{}'.format(cityname_8684, i)
+        r = requests.get(url)
+        r.status_code
+        r = r.text
+        
+        r = r[r.find('"list clearfix">')+len('"list clearfix">'):]
+        r = r[:r.find('</div>')]
+        r = list(filter(lambda s : len(s)>0, map(lambda s : s[s.find('>')+1:], r.split('</a>'))))
+        bus += r
+    
+    ndata = {'name':bus}
+    save('tmp/{}/bus_name_8684.csv'.format(cityname), ndata)
 
-    for (c,b) in bus :
-        url = 'https://restapi.amap.com/v3/bus/linename?s=rsv3&extensions=all&key={}&output=json&city={}&citylimit=false&keywords={}&platform=JS'.format(key2,c,b)
+def stage2(reset=False, start=None) :
+    Db = ['id', 'type', 'status', 'name', 'polyline', 'citycode', 'busstops']
+    Ds = ['id', 'name', 'citycode', 'buslines']
+    Dq = ['type', 'id']
+
+    workdir = 'tmp/{}/'.format(cityname)
+    if not os.path.exists(workdir):
+        os.makedirs(workdir)
+    
+    buslines = {d:[] for d in Db}
+    busstops = {d:[] for d in Ds}
+    queue = {d:[] for d in Dq}
+
+    if not reset :
+        if os.access('tmp/{}/buslines.csv'.format(cityname), os.F_OK) :
+            buslines = load('tmp/{}/buslines.csv'.format(cityname)).to_dict(orient='list')
+        if os.access('tmp/{}/busstops.csv'.format(cityname), os.F_OK) :
+            busstops = load('tmp/{}/busstops.csv'.format(cityname)).to_dict(orient='list')
+        if os.access('tmp/{}/queue.csv'.format(cityname), os.F_OK) :
+            queue = load('tmp/{}/queue.csv'.format(cityname)).to_dict(orient='list')
+
+    if start != None :
+        queue['type'].append(start[0])
+        queue['id'].append(start[1])
+
+    cb, cs = 0, 0
+
+    def saveall() :
+        save('tmp/{}/buslines.csv'.format(cityname), buslines)
+        save('tmp/{}/busstops.csv'.format(cityname), busstops)
+        save('tmp/{}/queue.csv'.format(cityname), queue)
+
+    while queue['type'] != [] :
+        type = queue['type'][0]
+        id = queue['id'][0]
+
+        if type == 'b' and id not in buslines['id'] :
+            url = 'https://restapi.amap.com/v3/bus/lineid?key={}&id={}&extensions=all'.format(key, id)
+        elif type == 's' and id not in busstops['id'] :
+            url = 'https://restapi.amap.com/v3/bus/stopid?key={}&id={}'.format(key, id)
+        
+        print(url)
         r = requests.get(url).text
         rt = json.loads(r)
-
-        print(url)
         # print(rt)
 
-        try:
-            print('search: ' + c + ' ' + b)
+        if rt['status'] == '0' :
+            saveall()
+            raise RuntimeError(r)
+
+        if type == 'b' :
+            cb += 1
             for line in rt['buslines'] :
-                if line['name'] not in ndata['name'] :
-                    print(line['name'])
+            
+                print(line['name'])
+                
+                for d in Db :
+                    buslines[d].append(line[d])
+                
+                for s in line['busstops'] :
+                    if s['id'] not in busstops['id'] and s['id'] not in queue['id'] :
+                        queue['type'].append('s')
+                        queue['id'].append(s['id'])
 
-                    for d in D :
-                        ndata[d].append(line[d])
-            print()
+        elif type == 's' :
+            cs += 1
+            for stop in rt['busstops'] :
+                print(stop['name'])
+                
+                if stop['citycode'] == citycode :
+                    for d in Ds :
+                        busstops[d].append(stop[d])
+                
+                    for b in stop['buslines'] :
+                        if b['id'] not in buslines['id'] and b['id'] not in queue['id'] :
+                            queue['type'].append('b')
+                            queue['id'].append(b['id'])
+
+        queue['type'] = queue['type'][1:]
+        queue['id'] = queue['id'][1:]
+
+        if (cb + cs) % 100 == 0 :
+            saveall()
+    
+    saveall()
+
         
-        except:
-            pass
 
-    save('tmp/{}/bus.csv'.format(cityname), ndata)
-
-def stage4() :
+def stage3() :
     def getstatus(id) :
         if id == 0 :
             return '停运'
@@ -177,7 +153,7 @@ def stage4() :
         elif id == 3 :
             return '在建'
 
-    df = load('tmp/{}/bus.csv'.format(cityname))
+    df = load('tmp/{}/buslines.csv'.format(cityname))
     n = len(df['name'])
 
     lineinfo = []
@@ -193,13 +169,15 @@ def stage4() :
 
     output = {"center" : center, "city_polyline" : border, "lineInfo" : lineinfo}
 
+    workdir = 'data/'.format(cityname)
+    if not os.path.exists(workdir):
+        os.makedirs(workdir)
     with open('data/{}.json'.format(cityname), mode='w') as f :
         json.dump(output, f)
 
 if __name__ == '__main__' :
     # stage0()
-    # stage1()
-    # stage2()
+    # stage1() 
+    # stage2(start=('b','900000089758'))
     stage3()
-    stage4()
     pass
